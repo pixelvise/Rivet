@@ -1,0 +1,43 @@
+{
+  "name": "@rivet-wp/cli",
+  "version": "0.1.0",
+  "description": "Direct WordPress deployment and recovery from your terminal",
+  "author": { "name": "Craig Gomes", "url": "https://craiggomes.com" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/gomescraig/Rivet.git" },
+  "bugs": { "url": "https://github.com/gomescraig/Rivet/issues" },
+  "homepage": "https://rivet-1dy.pages.dev",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "rivet": "bin/rivet.mjs"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node bin/rivet.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "test:integration": "node --experimental-strip-types tests/integration.mjs",
+    "test:studio": "node --experimental-strip-types tests/studio-fixture.mjs",
+    "test:package": "node tests/package.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:php": "php tests/php-test.php",
+    "check": "npm run typecheck && npm test && npm run test:php",
+    "plugin:zip": "node scripts/package.mjs",
+    "site:dev": "npm --prefix website run dev",
+    "site:build": "npm --prefix website run build"
+  },
+  "files": [
+    "bin",
+    "dist/cli",
+    "php",
+    "plugin"
+  ],
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "typescript": "5.9.2"
+  }
+}
