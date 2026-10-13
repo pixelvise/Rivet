@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: Rivet Connector
-Plugin URI: https://github.com/gomescraig/Rivet
+Plugin URI: https://github.com/pixelvise/Rivet
 Description: Direct, administrator-authorized WordPress deployment and private server snapshots.
 Author: Craig Gomes
 Author URI: https://craiggomes.com

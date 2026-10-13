@@ -22,17 +22,17 @@ No Rivet account, hosted control plane, Git repository, or SSH access is require
 
 Requires **Node.js 22.18+**. The remote connector requires **WordPress 6.5+, PHP 8.1+, and MySQL/MariaDB**.
 
-Download and install the CLI from the [v0.2.0 release](https://github.com/gomescraig/Rivet/releases/tag/v0.2.0):
+Download and install the CLI from the [v0.2.0 release](https://github.com/pixelvise/Rivet/releases/tag/v0.2.0):
 
 ```sh
-npm install -g https://github.com/gomescraig/Rivet/releases/download/v0.2.0/rivet-wp-cli-0.2.0.tgz
+npm install -g https://github.com/pixelvise/Rivet/releases/download/v0.2.0/rivet-wp-cli-0.2.0.tgz
 rivet --help
 ```
 
 The CLI is distributed through GitHub Releases, not the npm registry. Alternatively, build from source:
 
 ```sh
-git clone https://github.com/gomescraig/Rivet.git
+git clone https://github.com/pixelvise/Rivet.git
 cd Rivet
 npm ci
 npm link
@@ -198,4 +198,4 @@ It exports to `website/out` for Cloudflare Pages. The CLI has no runtime npm dep
 
 [Personal website](https://craiggomes.com) · [Professional background](https://craiggomes.com/about) · [GitHub](https://github.com/gomescraig)
 
-Bug reports and focused contributions are welcome through [GitHub Issues](https://github.com/gomescraig/Rivet/issues) and pull requests. Include the relevant command, software versions, and sanitized output. Never attach device credentials or database exports.
+Bug reports and focused contributions are welcome through [GitHub Issues](https://github.com/pixelvise/Rivet/issues) and pull requests. Include the relevant command, software versions, and sanitized output. Never attach device credentials or database exports.
