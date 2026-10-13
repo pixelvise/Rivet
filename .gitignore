@@ -13,6 +13,3 @@ dist/
 *.tgz
 *.tsbuildinfo
 .DS_Store
-website/out/
-test-results/
-playwright-report/
