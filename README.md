@@ -22,10 +22,10 @@ No Rivet account, hosted control plane, Git repository, or SSH access is require
 
 Requires **Node.js 22.18+**. The remote connector requires **WordPress 6.5+, PHP 8.1+, and MySQL/MariaDB**.
 
-Download and install the CLI from the [v0.1.0 release](https://github.com/gomescraig/Rivet/releases/tag/v0.1.0):
+Download and install the CLI from the [v0.2.0 release](https://github.com/gomescraig/Rivet/releases/tag/v0.2.0):
 
 ```sh
-npm install -g https://github.com/gomescraig/Rivet/releases/download/v0.1.0/rivet-wp-cli-0.1.0.tgz
+npm install -g https://github.com/gomescraig/Rivet/releases/download/v0.2.0/rivet-wp-cli-0.2.0.tgz
 rivet --help
 ```
 
@@ -56,6 +56,30 @@ rivet push --content-only
 `login` opens wp-admin. Sign in if needed, compare the verification code with your terminal, and approve the device. Rivet never asks for your WordPress password in the terminal. For a subdirectory installation, use its base URL, such as `https://example.com/site`, without `/wp-admin`.
 
 Every deployment creates a safety snapshot before changing live files or tables. Destructive operations ask you to type the full destination URL. Automated scripts can pass `--confirm https://example.com` instead.
+
+### What does `--dry-run` mean?
+
+It means **preview only**. Rivet scans local files, compares checksums with the destination, and reports which files and database tables would change. It does not upload content, create a deployment job, or replace live files/tables. With `--database`, it may generate a private temporary local export to inspect the source.
+
+Review the preview, then run the same command without `--dry-run` when you want to deploy. Use `--verbose` to list every changed file; the default view summarizes counts and shows a short sample.
+
+### Readable progress and batched transfers
+
+Version 0.2.0 describes the current phase with actual units instead of an internal step number. Example output:
+
+```text
+Uploading: 250 of 1,095 files — 12.4 MiB of 55.7 MiB total (22%)
+Backing up site files: 2,500 of 4,325 files (57%)
+Preparing replacement database tables: 1.0 MiB of 2.0 MiB (50%) — 600 rows staged
+```
+
+Percentages apply to the **current phase**, not the entire deployment. Interactive terminals update one line; non-interactive logs are throttled to avoid flooding the output.
+
+The updated connector accepts up to 20 small files per request within a 512 KiB payload limit. Backup, apply, and restore-prune batches handle up to 100 files per request while retaining their two-second time budget. This reduces network round trips; actual duration still depends on the host, network, database, and file sizes.
+
+**Upgrade both the CLI and connector** for the batching and detailed server counters. The new CLI still supports the 0.1.0 connector using single-file uploads and phase-only progress. Replacing the installed connector is a separate wp-admin update; a file push never replaces Rivet itself.
+
+See the [changelog](CHANGELOG.md) for release history.
 
 ### Database deployment
 
@@ -137,7 +161,7 @@ CLI site profiles are stored with restrictive permissions under `~/.config/rivet
 
 ## Release status and limitations
 
-Version 0.1.0 is an early release. File installation is not an atomic whole-site release, and maintenance mode is not a database-wide lock. A PHP fatal error introduced by deployed code can make WordPress and the connector unavailable; recovery then requires hosting/file access.
+Version 0.2.0 is an early release. File installation is not an atomic whole-site release, and maintenance mode is not a database-wide lock. A PHP fatal error introduced by deployed code can make WordPress and the connector unavailable; recovery then requires hosting/file access.
 
 Multisite, views, triggers, foreign-key dependencies, and generated-column schemas are unsupported. Remote jobs require MySQL/MariaDB; SQLite is supported as a local source. Exports cap individual database records at 8 MiB. Large-site performance and broad hosting/plugin compatibility need further validation. Interrupted staging uploads currently require starting a new push; server-side jobs can be resumed by ID.
 

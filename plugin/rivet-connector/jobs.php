@@ -31,7 +31,19 @@ function rivet_new_job($kind, $source = null, $request_id = null) {
 }
 
 function rivet_job_public($job) {
-    return array_intersect_key($job, array_flip(array('id', 'kind', 'source', 'status', 'phase', 'backup', 'created', 'progress', 'error')));
+    $public = array_intersect_key($job, array_flip(array('id', 'kind', 'source', 'status', 'phase', 'backup', 'created', 'progress', 'error')));
+    $phase = $job['phase'];
+    if ($phase === 'backup-database') {
+        $tables = $job['dump']['tables'] ?? array();
+        $index = $job['dump']['table'] ?? 0;
+        $public['details'] = array('completed' => $index, 'total' => count($tables), 'unit' => 'tables', 'table' => $tables[$index] ?? null, 'rows' => $job['dump']['offset'] ?? 0);
+    } elseif ($phase === 'import-database') {
+        $public['details'] = array('completed' => $job['import']['offset'] ?? 0, 'total' => $job['database']['size'] ?? 0, 'unit' => 'bytes', 'rows' => $job['import']['row'] ?? 0);
+    } else {
+        $key = array('backup-files' => 'files', 'apply-files' => 'apply', 'restore-prune' => 'remove')[$phase] ?? null;
+        if ($key) { $public['details'] = array('completed' => $job['cursor'] ?? 0, 'total' => count($job[$key] ?? array()), 'unit' => 'files'); }
+    }
+    return $public;
 }
 
 function rivet_cleanup_tables($id) {
@@ -90,7 +102,7 @@ function rivet_job_step($id) {
         } elseif ($job['phase'] === 'backup-files') {
             if ($job['cursor'] < count($job['files'])) {
                 $until = microtime(true) + 2;
-                for ($batch = 0; $batch < 25 && $job['cursor'] < count($job['files']) && microtime(true) < $until; $batch++) {
+                for ($batch = 0; $batch < 100 && $job['cursor'] < count($job['files']) && microtime(true) < $until; $batch++) {
                     $entry = $job['files'][$job['cursor']];
                     rivet_copy(rivet_target($entry['path']), $backup . '/' . hash('sha256', $entry['path']), $entry['sha256']);
                     $job['cursor']++;
@@ -138,7 +150,7 @@ function rivet_job_step($id) {
             rivet_save($path, $job);
             if ($job['cursor'] < count($job['apply'])) {
                 $until = microtime(true) + 2;
-                for ($batch = 0; $batch < 25 && $job['cursor'] < count($job['apply']) && microtime(true) < $until; $batch++) {
+                for ($batch = 0; $batch < 100 && $job['cursor'] < count($job['apply']) && microtime(true) < $until; $batch++) {
                     $entry = $job['apply'][$job['cursor']];
                     rivet_copy($job['source_path'] . '/' . hash('sha256', $entry['path']), rivet_target($entry['path']), $entry['sha256'], 0644);
                     $job['cursor']++;
@@ -150,9 +162,12 @@ function rivet_job_step($id) {
             $job['cursor'] = 0;
         } elseif ($job['phase'] === 'restore-prune') {
             if ($job['cursor'] < count($job['remove'])) {
-                $target = rivet_target($job['remove'][$job['cursor']]);
-                if (is_file($target) && !unlink($target)) { throw new RuntimeException('Cannot remove a file absent from the snapshot.'); }
-                $job['cursor']++;
+                $until = microtime(true) + 2;
+                for ($batch = 0; $batch < 100 && $job['cursor'] < count($job['remove']) && microtime(true) < $until; $batch++) {
+                    $target = rivet_target($job['remove'][$job['cursor']]);
+                    if (is_file($target) && !unlink($target)) { throw new RuntimeException('Cannot remove a file absent from the snapshot.'); }
+                    $job['cursor']++;
+                }
             } else { rivet_complete_job($job); return rivet_job_public($job); }
         } else { throw new RuntimeException('Unknown job phase.'); }
         $job['progress']++;

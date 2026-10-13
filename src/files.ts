@@ -1,8 +1,9 @@
 import { createReadStream } from 'node:fs';
-import { lstat, readdir, open, stat } from 'node:fs/promises';
+import { lstat, readdir, open, stat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Client } from './client.ts';
+import { formatBytes, ProgressReporter } from './progress.ts';
 
 export type Entry = { path: string; size: number; sha256: string };
 const rootFiles = new Set(['index.php', 'wp-activate.php', 'wp-blog-header.php', 'wp-comments-post.php', 'wp-cron.php', 'wp-links-opml.php', 'wp-load.php', 'wp-login.php', 'wp-mail.php', 'wp-settings.php', 'wp-signup.php', 'wp-trackback.php', 'xmlrpc.php']);
@@ -43,22 +44,63 @@ export async function manifest(root: string, contentOnly: boolean, excludes: str
   return result;
 }
 
-export async function upload(client: Client, id: string, root: string, entries: Entry[], database?: string) {
-  for (const entry of [...entries, ...(database ? [{ path: '@database', size: (await stat(database)).size, sha256: await hashFile(database) }] : [])]) {
-    const source = entry.path === '@database' ? database! : join(root, entry.path);
-    const file = await open(source, 'r');
-    try {
-      let offset = 0;
-      do {
-        const buffer = Buffer.alloc(Math.min(256 * 1024, entry.size - offset));
-        const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
-        if (buffer.length && bytesRead !== buffer.length) throw new Error(`File changed during upload: ${entry.path}`);
-        await client.request(`deployments/${id}/chunk`, { path: entry.path, offset, data: buffer.subarray(0, bytesRead).toString('base64') });
-        offset += bytesRead;
-      } while (offset < entry.size);
-      console.log(`Uploaded ${entry.path}`);
-    } finally { await file.close(); }
+export async function upload(client: Client, id: string, root: string, entries: Entry[], database?: string, options: { batch?: boolean; verbose?: boolean } = {}) {
+  const all = [...entries, ...(database ? [{ path: '@database', size: (await stat(database)).size, sha256: await hashFile(database) }] : [])];
+  const total = all.reduce((sum, entry) => sum + entry.size, 0);
+  const progress = new ProgressReporter();
+  let uploaded = 0;
+  let files = 0;
+  let chunks: { path: string; offset: number; data: string }[] = [];
+  let batchBytes = 0;
+  function report(force = false) {
+    progress.update(`Uploading: ${files.toLocaleString('en-US')} of ${entries.length.toLocaleString('en-US')} files — ${formatBytes(uploaded)} of ${formatBytes(total)} total${database ? ' (includes database)' : ''} (${total ? Math.floor(uploaded / total * 100) : files === entries.length ? 100 : 0}%)`, force);
   }
+  async function flush() {
+    if (!chunks.length) return;
+    await client.request(`deployments/${id}/batch`, { chunks });
+    uploaded += batchBytes;
+    files += chunks.length;
+    if (options.verbose) { progress.end(); for (const chunk of chunks) console.log(`Uploaded ${chunk.path}`); }
+    chunks = [];
+    batchBytes = 0;
+    report();
+  }
+  report(true);
+  try {
+    for (const entry of all) {
+      const isDatabase = entry.path === '@database';
+      const source = isDatabase ? database! : join(root, entry.path);
+      if (options.batch && !isDatabase && entry.size <= 65536) {
+        if (chunks.length >= 20 || batchBytes + entry.size > 524288) await flush();
+        const data = await readFile(source);
+        if (data.length !== entry.size || createHash('sha256').update(data).digest('hex') !== entry.sha256) throw new Error(`File changed during upload: ${entry.path}`);
+        chunks.push({ path: entry.path, offset: 0, data: data.toString('base64') });
+        batchBytes += data.length;
+        continue;
+      }
+      await flush();
+      const file = await open(source, 'r');
+      try {
+        if ((await file.stat()).size !== entry.size) throw new Error(`File changed during upload: ${entry.path}`);
+        let offset = 0;
+        if (isDatabase) { progress.end(); console.log(`Uploading the database export (${formatBytes(entry.size)}).`); }
+        do {
+          const buffer = Buffer.alloc(Math.min(262144, entry.size - offset));
+          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+          if (buffer.length && bytesRead !== buffer.length) throw new Error(`File changed during upload: ${entry.path}`);
+          await client.request(`deployments/${id}/chunk`, { path: entry.path, offset, data: buffer.subarray(0, bytesRead).toString('base64') });
+          offset += bytesRead;
+          uploaded += bytesRead;
+          if (!isDatabase && offset === entry.size) files++;
+          report();
+        } while (offset < entry.size);
+        if (options.verbose) { progress.end(); console.log(`Uploaded ${entry.path}`); }
+      } finally { await file.close(); }
+    }
+    await flush();
+    report(true);
+  } finally { progress.end(); }
+  console.log('Upload complete. Verifying checksums before creating the safety snapshot.');
 }
 
 export async function databaseHeader(path: string): Promise<{ type: string; version: number; prefix: string; url: string; tables: string[] }> {

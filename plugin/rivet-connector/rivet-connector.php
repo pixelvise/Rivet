@@ -6,7 +6,7 @@ Description: Direct, administrator-authorized WordPress deployment and private s
 Author: Craig Gomes
 Author URI: https://craiggomes.com
 License: MIT
-Version: 0.1.0
+Version: 0.2.0
 Requires at least: 6.5
 Requires PHP: 8.1
 */
@@ -59,7 +59,7 @@ function rivet_route($method, $pattern, $handler, $public = false) {
 
 add_action('rest_api_init', function () {
     rivet_route('GET', '/discovery', function () {
-        return array('name' => 'rivet', 'protocol' => 1, 'version' => '0.1.0');
+        return array('name' => 'rivet', 'protocol' => 1, 'version' => '0.2.0');
     }, true);
     rivet_route('POST', '/auth/start', function ($body) {
         if (!preg_match('/^[a-f0-9]{64}$/D', $body['challenge'] ?? '')) { throw new RuntimeException('Invalid device challenge.'); }
@@ -107,7 +107,7 @@ add_action('rest_api_init', function () {
             $target = rivet_target($path);
             if (!is_file($target) || !hash_equals($entry['sha256'], hash_file('sha256', $target))) { $changed[] = $path; $bytes += $entry['size']; }
         }
-        return array('target' => untrailingslashit(site_url()), 'changed' => $changed, 'bytes' => $bytes, 'replace_tables' => $body['database']['tables'] ?? array(), 'warnings' => array('Table replacement is not a row-level merge. Plugin table relationships are not inferred.', 'Backups require maintenance mode and private disk space. Pause external writers and scheduled hosting tasks.', 'File deployment overlays managed paths; it does not delete remote-only files.', 'WordPress core, plugin, and theme version compatibility must be checked on staging.'));
+        return array('target' => untrailingslashit(site_url()), 'changed' => $changed, 'bytes' => $bytes, 'replace_tables' => $body['database']['tables'] ?? array(), 'upload_batch' => true, 'warnings' => array('Table replacement is not a row-level merge. Plugin table relationships are not inferred.', 'Backups require maintenance mode and private disk space. Pause external writers and scheduled hosting tasks.', 'File deployment overlays managed paths; it does not delete remote-only files.', 'WordPress core, plugin, and theme version compatibility must be checked on staging.'));
     });
     rivet_route('POST', '/deployments', function ($body) {
         rivet_confirm($body);
@@ -123,26 +123,13 @@ add_action('rest_api_init', function () {
         $directory = rivet_deployment_path($request['id']);
         $manifest = rivet_load($directory . '/manifest.json');
         if (!$manifest || $manifest['owner'] !== $GLOBALS['rivet_device_id'] || isset($manifest['job'])) { throw new RuntimeException('Deployment is not writable by this device.'); }
-        $path = $body['path'] ?? '';
-        $entry = $manifest['entries'][$path] ?? null;
-        $data = is_string($body['data'] ?? null) ? base64_decode($body['data'], true) : false;
-        $offset = $body['offset'] ?? null;
-        if (!$entry || $data === false || strlen($data) > 262144 || !is_int($offset) || $offset < 0 || $offset + strlen($data) > $entry['size']) { throw new RuntimeException('Invalid upload chunk.'); }
-        $file = $directory . '/' . hash('sha256', $path);
-        clearstatcache(true, $file);
-        $size = is_file($file) ? filesize($file) : 0;
-        if ($offset < $size) {
-            $handle = fopen($file, 'rb');
-            fseek($handle, $offset);
-            $prior = strlen($data) ? fread($handle, strlen($data)) : '';
-            fclose($handle);
-            if ($prior !== $data) { throw new RuntimeException('Conflicting retry chunk.'); }
-            return array('offset' => $size);
-        }
-        if ($offset !== $size) { throw new RuntimeException('Upload offset mismatch.'); }
-        if (file_put_contents($file, $data, FILE_APPEND | LOCK_EX) !== strlen($data)) { throw new RuntimeException('Cannot write upload chunk.'); }
-        chmod($file, 0600);
-        return array('offset' => $size + strlen($data));
+        return rivet_receive_chunk($directory, $manifest, $body);
+    });
+    rivet_route('POST', '/deployments/(?P<id>[a-f0-9]{32})/batch', function ($body, $request) {
+        $directory = rivet_deployment_path($request['id']);
+        $manifest = rivet_load($directory . '/manifest.json');
+        if (!$manifest || $manifest['owner'] !== $GLOBALS['rivet_device_id'] || isset($manifest['job'])) { throw new RuntimeException('Deployment is not writable by this device.'); }
+        return rivet_receive_batch($directory, $manifest, $body['chunks'] ?? null);
     });
     rivet_route('POST', '/deployments/(?P<id>[a-f0-9]{32})/commit', function ($body, $request) {
         rivet_confirm($body);

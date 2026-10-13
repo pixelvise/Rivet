@@ -120,18 +120,29 @@ try {
   await assert.rejects(client.request('plan', { files: bad }), /Invalid/);
   const plan = await client.request('plan', { files: entries, database: db });
   assert.deepEqual(plan.changed, [file]);
+  assert.equal(plan.upload_batch, true);
   assert.equal(await readFile(join(remote, file), 'utf8'), 'remote');
   await assert.rejects(client.request('deployments', { files: entries, confirm: sourceUrl }), /confirmation/);
   const deployment = await client.request('deployments', { files: entries, database: db, confirm: url });
   await assert.rejects(client.request(`deployments/${deployment.id}/commit`, { confirm: url }), /incomplete/);
-  await upload(client, deployment.id, local, entries, database);
+  const chunk = { path: file, offset: 0, data: Buffer.from('local').toString('base64') };
+  await assert.rejects(anonymous.request(`deployments/${deployment.id}/batch`, { chunks: [chunk] }), /401/);
+  await client.request(`deployments/${deployment.id}/batch`, { chunks: [chunk] });
+  await client.request(`deployments/${deployment.id}/batch`, { chunks: [chunk] });
+  await upload(client, deployment.id, local, entries, database, { batch: plan.upload_batch });
   const job = await client.request(`deployments/${deployment.id}/commit`, { confirm: url });
   assert.equal((await client.request(`deployments/${deployment.id}/commit`, { confirm: url })).id, job.id);
+  await assert.rejects(client.request(`deployments/${deployment.id}/batch`, { chunks: [chunk] }), /not writable/);
   assert.equal((await fetch(url)).status, 503);
   await assert.rejects(client.request('backups', { action: 'create' }), /Another job/);
   for (;;) {
     const state = await client.request(`jobs/${job.id}/step`, {});
     assert.notEqual(state.status, 'failed', JSON.stringify(state));
+    if (state.phase === 'backup-files') {
+      assert.equal(state.details.unit, 'files');
+      assert.ok(state.details.total > 0);
+      assert.ok(state.details.completed >= 0 && state.details.completed <= state.details.total);
+    }
     if (state.phase === 'import-database') break;
   }
   await client.request(`jobs/${job.id}/step`, {});

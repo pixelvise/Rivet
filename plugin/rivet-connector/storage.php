@@ -118,3 +118,40 @@ function rivet_copy($source, $target, $hash, $mode = 0600) {
     chmod($temp, $mode);
     if (!rename($temp, $target)) { throw new RuntimeException('Atomic file replacement failed. Storage and WordPress must share a filesystem.'); }
 }
+
+function rivet_receive_chunk($directory, $manifest, $body) {
+    $path = $body['path'] ?? '';
+    $entry = is_string($path) ? ($manifest['entries'][$path] ?? null) : null;
+    $data = is_string($body['data'] ?? null) ? base64_decode($body['data'], true) : false;
+    $offset = $body['offset'] ?? null;
+    if (!$entry || $data === false || strlen($data) > 262144 || !is_int($offset) || $offset < 0 || $offset + strlen($data) > $entry['size']) { throw new RuntimeException('Invalid upload chunk.'); }
+    $file = $directory . '/' . hash('sha256', $path);
+    clearstatcache(true, $file);
+    $size = is_file($file) ? filesize($file) : 0;
+    if ($offset < $size) {
+        $handle = fopen($file, 'rb');
+        fseek($handle, $offset);
+        $prior = strlen($data) ? fread($handle, strlen($data)) : '';
+        fclose($handle);
+        if ($prior !== $data) { throw new RuntimeException('Conflicting retry chunk.'); }
+        return array('offset' => $size);
+    }
+    if ($offset !== $size) { throw new RuntimeException('Upload offset mismatch.'); }
+    if (file_put_contents($file, $data, FILE_APPEND | LOCK_EX) !== strlen($data)) { throw new RuntimeException('Cannot write upload chunk.'); }
+    chmod($file, 0600);
+    return array('offset' => $size + strlen($data));
+}
+
+function rivet_receive_batch($directory, $manifest, $chunks) {
+    if (!is_array($chunks) || !array_is_list($chunks) || count($chunks) < 1 || count($chunks) > 20) { throw new RuntimeException('A batch must contain between 1 and 20 chunks.'); }
+    $bytes = 0;
+    foreach ($chunks as $chunk) {
+        if (!is_array($chunk) || !is_string($chunk['data'] ?? null) || strlen($chunk['data']) > 349528) { throw new RuntimeException('Invalid batch chunk.'); }
+        $data = base64_decode($chunk['data'], true);
+        if ($data === false) { throw new RuntimeException('Invalid batch encoding.'); }
+        $bytes += strlen($data);
+    }
+    if ($bytes > 524288) { throw new RuntimeException('Batch data exceeds 512 KiB.'); }
+    foreach ($chunks as $chunk) { rivet_receive_chunk($directory, $manifest, $chunk); }
+    return array('uploaded' => count($chunks));
+}

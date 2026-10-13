@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Site } from './state.ts';
+import { formatJobProgress, ProgressReporter, type Job } from './progress.ts';
 
 export function normalizeUrl(input: string): string {
   const url = new URL(input.includes('://') ? input : `https://${input}`);
@@ -18,7 +19,7 @@ export class Client {
   async request<T = any>(route: string, body?: unknown): Promise<T> {
     const url = new URL(this.site.url + '/');
     url.searchParams.set('rest_route', `/rivet/v1/${route}`);
-    const repeatable = body === undefined || route === 'plan' || /^deployments\/[a-f0-9]{32}\/(chunk|commit)$/.test(route) || /^jobs\/[a-f0-9]{32}\/step$/.test(route);
+    const repeatable = body === undefined || route === 'plan' || /^deployments\/[a-f0-9]{32}\/(chunk|batch|commit)$/.test(route) || /^jobs\/[a-f0-9]{32}\/step$/.test(route);
     for (let attempt = 0; ; attempt++) {
       let response: Response;
       let text: string;
@@ -35,7 +36,8 @@ export class Client {
         const failure = error as Error & { cause?: { code?: string } };
         const code = failure.cause?.code || failure.name;
         const transient = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'TimeoutError'].includes(code);
-        if (!repeatable || !transient || attempt >= 3) throw new Error(`Network request failed (${code}) for ${route}. No automatic retry is made for non-repeatable operations.`);
+        if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY/.test(code)) throw new Error(`TLS certificate verification failed (${code}). Check the destination certificate chain and your trusted CA setup. Rivet will not disable certificate checks.`);
+        if (!repeatable || !transient || attempt >= 3) throw new Error(`Network request failed (${code}) for ${route}. ${repeatable ? 'Automatic retries are exhausted or this error is not transient.' : 'This operation is not automatically retried.'} If a server job started, resume it by ID.`);
         console.error(`Connection interrupted (${code}); retrying ${route} (${attempt + 1}/3).`);
         await delay(500 * 2 ** attempt);
         continue;
@@ -91,12 +93,23 @@ export async function authorize(input: string, label: string, browser = true): P
 }
 
 export async function runJob(client: Client, id: string) {
-  console.log(`Job ${id}. Resume interrupted polling with: rivet jobs resume ${id}`);
-  for (;;) {
-    const job = await client.request(`jobs/${id}/step`, {});
-    process.stdout.write(`${job.phase}: ${job.progress || 0}\n`);
-    if (job.status === 'complete') return job;
-    if (job.status === 'failed') throw new Error(`Job ${id} failed: ${job.error}. Inspect rivet jobs status ${id}; restore its backup if needed.`);
-    await delay(100);
-  }
+  console.log(`Job: ${id}\nIf the connection stops, resume with: rivet jobs resume ${id}`);
+  const progress = new ProgressReporter();
+  let phase = '';
+  progress.update('Preparing the server job. The site uses temporary maintenance mode.', true);
+  try {
+    for (;;) {
+      const job = await client.request<Job>(`jobs/${id}/step`, {});
+      if (!phase && !job.details && job.status === 'running') {
+        progress.end();
+        console.log('This connector reports phases only. Update the plugin for file counts and percentages.');
+      }
+      const phaseFinished = !!job.details && job.details.total > 0 && job.details.completed >= job.details.total;
+      progress.update(formatJobProgress(job), job.phase !== phase || job.status !== 'running' || phaseFinished);
+      phase = job.phase;
+      if (job.status === 'complete' || job.status === 'cancelled') return job;
+      if (job.status === 'failed') throw new Error(`Job ${id} failed: ${job.error}. Inspect rivet jobs status ${id}; resume it or restore its backup if live changes started.`);
+      await delay(50);
+    }
+  } finally { progress.end(); }
 }

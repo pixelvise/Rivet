@@ -2,6 +2,7 @@
 
 require dirname(__DIR__) . '/plugin/rivet-connector/storage.php';
 require dirname(__DIR__) . '/plugin/rivet-connector/database.php';
+require dirname(__DIR__) . '/plugin/rivet-connector/jobs.php';
 $count = 0;
 function check($condition, $name) {
     global $count;
@@ -70,6 +71,20 @@ rejects(function () { rivet_target('wp-content/uploads/secret.php'); }, 'reject 
 rivet_save(rivet_storage() . '/state.json', array('value' => 123));
 check(rivet_load(rivet_storage() . '/state.json')['value'] === 123, 'atomic state roundtrip');
 check((fileperms(rivet_storage() . '/state.json') & 0777) === 0600, 'private state permissions');
+$directory = rivet_storage();
+$upload_path = 'wp-content/uploads/test.txt';
+$manifest = array('entries' => array($upload_path => array('size' => 4)));
+$chunk = array('path' => $upload_path, 'offset' => 0, 'data' => base64_encode('test'));
+rivet_receive_batch($directory, $manifest, array($chunk, $chunk));
+check(file_get_contents($directory . '/' . hash('sha256', $upload_path)) === 'test', 'batch retries do not duplicate bytes');
+rejects(function () use ($directory, $manifest, $chunk) { rivet_receive_batch($directory, $manifest, array_fill(0, 21, $chunk)); }, 'bound batch file count');
+rejects(function () use ($directory, $manifest, $chunk) { $chunk['data'] = base64_encode(str_repeat('x', 200000)); rivet_receive_batch($directory, $manifest, array($chunk, $chunk, $chunk)); }, 'bound batch payload size');
+rejects(function () use ($directory, $manifest, $chunk) { $chunk['data'] = base64_encode('oops'); rivet_receive_batch($directory, $manifest, array($chunk)); }, 'reject conflicting batch retries');
+rejects(function () use ($directory, $manifest, $chunk) { $chunk['path'] = '../wp-config.php'; rivet_receive_batch($directory, $manifest, array($chunk)); }, 'reject paths absent from authorized manifest');
+$public = rivet_job_public(array('id' => 'test', 'phase' => 'backup-files', 'cursor' => 2, 'files' => array(1, 2, 3), 'data_path' => '/private/export'));
+check($public['details'] === array('completed' => 2, 'total' => 3, 'unit' => 'files'), 'publish real backup counts');
+check(!isset($public['data_path']), 'do not expose private job paths');
+unlink($directory . '/' . hash('sha256', $upload_path));
 unlink(rivet_storage() . '/state.json');
 unlink($root . '/public/wp-content/uploads');
 rmdir($root . '/public/wp-content');

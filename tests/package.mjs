@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -17,6 +17,6 @@ try {
   const { stdout } = await exec(process.execPath, [cli, '--help']);
   assert.ok(stdout.includes('rivet backup restore'));
   const version = await exec(process.execPath, [cli, '--version']);
-  assert.equal(version.stdout.trim(), '0.1.0');
+  assert.equal(version.stdout.trim(), JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version);
   console.log('PASS: packed CLI installs and runs from node_modules without TypeScript runtime dependencies');
 } finally { await rm(temp, { recursive: true, force: true }); }

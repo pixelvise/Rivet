@@ -1,11 +1,19 @@
 {
   "name": "@rivet-wp/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Direct WordPress deployment and recovery from your terminal",
-  "author": { "name": "Craig Gomes", "url": "https://craiggomes.com" },
+  "author": {
+    "name": "Craig Gomes",
+    "url": "https://craiggomes.com"
+  },
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/gomescraig/Rivet.git" },
-  "bugs": { "url": "https://github.com/gomescraig/Rivet/issues" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gomescraig/Rivet.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gomescraig/Rivet/issues"
+  },
   "homepage": "https://rivet-1dy.pages.dev",
   "type": "module",
   "private": true,
@@ -34,7 +42,8 @@
     "bin",
     "dist/cli",
     "php",
-    "plugin"
+    "plugin",
+    "CHANGELOG.md"
   ],
   "devDependencies": {
     "@types/node": "22.18.0",
