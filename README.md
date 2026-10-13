@@ -182,16 +182,6 @@ npm run test:integration
 RIVET_TEST_STUDIO=1 npm run test:integration
 ```
 
-The Next.js documentation website is a separate static application:
-
-```sh
-npm --prefix website ci
-npm run site:dev
-npm run site:build
-```
-
-It exports to `website/out` for Cloudflare Pages. The CLI has no runtime npm dependencies; website dependencies are kept separate.
-
 ## Author
 
 **Craig Gomes** is a systems design engineer, entrepreneur, author, and founder of Pixelvise. His work focuses on digital systems, interfaces, architecture, and long-term maintainability.

@@ -34,9 +34,7 @@
     "typecheck": "tsc --noEmit",
     "test:php": "php tests/php-test.php",
     "check": "npm run typecheck && npm test && npm run test:php",
-    "plugin:zip": "node scripts/package.mjs",
-    "site:dev": "npm --prefix website run dev",
-    "site:build": "npm --prefix website run build"
+    "plugin:zip": "node scripts/package.mjs"
   },
   "files": [
     "bin",
